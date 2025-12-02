@@ -653,7 +653,7 @@ def run_monte_carlo(
 def main():
     st.set_page_config(page_title="V53 Digital Twin", layout="wide")
     st.title("V53 Digital Twin")
-    st.subheader("Scenarios, Capacity, Risks")
+    st.subheader("Modelling. Scenarios, Capacity, Risks")
     st.markdown("***")
 
     # Session state defaults
@@ -751,7 +751,7 @@ def main():
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown("### Products (incl. GPU SKUs)")
+        st.markdown("### Products")
         st.session_state["products_df"] = st.data_editor(
             st.session_state["products_df"],
             use_container_width=True,
@@ -759,7 +759,7 @@ def main():
             key="products_editor",
         )
 
-        st.markdown("### GPU SKUs (real hardware)")
+        st.markdown("### GPU SKUs")
         st.session_state["gpu_skus_df"] = st.data_editor(
             st.session_state["gpu_skus_df"],
             use_container_width=True,
@@ -776,7 +776,7 @@ def main():
             key="capacity_editor",
         )
 
-        st.markdown("### Power Tariffs (real-world grid contracts)")
+        st.markdown("### Power Tariffs")
         st.session_state["tariffs_df"] = st.data_editor(
             st.session_state["tariffs_df"],
             use_container_width=True,
