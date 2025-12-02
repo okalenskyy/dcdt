@@ -652,7 +652,7 @@ def run_monte_carlo(
 
 def main():
     st.set_page_config(page_title="AI Factory Digital Twin", layout="wide")
-    st.title("V53 Digital Twin – Scenario, Capacity & Risk Simulator")
+    st.title("V53 Digital Twin")
     st.subheader("Scenarios, Capacity, Risks")
     st.markdown("***")
 
