@@ -703,45 +703,45 @@ def main():
     if not selected_scenarios:
         selected_scenarios = ["Base Case"]
 
-    # File upload: load from Excel
-    st.sidebar.header("Import from Excel")
-    uploaded = st.sidebar.file_uploader("Upload scenario Excel", type=["xlsx"])
-    if uploaded is not None:
-        try:
-            loaded = load_from_excel(uploaded)
-            if "start_year" in loaded:
-                start_year = loaded["start_year"]
-            if "model_years" in loaded:
-                model_years = loaded["model_years"]
-            if "base_TAM_gpus" in loaded:
-                base_TAM_gpus = loaded["base_TAM_gpus"]
-            if "base_SAM_share" in loaded:
-                base_SAM_share = loaded["base_SAM_share"]
-            if "base_gpu_utilization" in loaded:
-                base_gpu_utilization = loaded["base_gpu_utilization"]
-            if "base_power_price" in loaded:
-                base_power_price = loaded["base_power_price"]
-            if "global_gpu_power_kw" in loaded:
-                global_gpu_power_kw = loaded["global_gpu_power_kw"]
-            if "fixed_opex_per_year" in loaded:
-                fixed_opex_per_year = loaded["fixed_opex_per_year"]
-            if "other_var_cost" in loaded:
-                other_variable_cost_per_gpu_h = loaded["other_var_cost"]
-            if "discount_rate" in loaded:
-                discount_rate = loaded["discount_rate"]
-            if "tax_rate" in loaded:
-                tax_rate = loaded["tax_rate"]
-            if "capex_lifetime_years" in loaded:
-                capex_lifetime_years = loaded["capex_lifetime_years"]
-            if "products_df" in loaded:
-                st.session_state["products_df"] = loaded["products_df"]
-            if "capacity_df" in loaded:
-                st.session_state["capacity_df"] = loaded["capacity_df"]
-            if "invest_df" in loaded:
-                st.session_state["invest_df"] = loaded["invest_df"]
-            st.sidebar.success("Excel model imported successfully.")
-        except Exception as e:
-            st.sidebar.error(f"Failed to import: {e}")
+    # # File upload: load from Excel
+    # st.sidebar.header("Import from Excel")
+    # uploaded = st.sidebar.file_uploader("Upload scenario Excel", type=["xlsx"])
+    # if uploaded is not None:
+    #     try:
+    #         loaded = load_from_excel(uploaded)
+    #         if "start_year" in loaded:
+    #             start_year = loaded["start_year"]
+    #         if "model_years" in loaded:
+    #             model_years = loaded["model_years"]
+    #         if "base_TAM_gpus" in loaded:
+    #             base_TAM_gpus = loaded["base_TAM_gpus"]
+    #         if "base_SAM_share" in loaded:
+    #             base_SAM_share = loaded["base_SAM_share"]
+    #         if "base_gpu_utilization" in loaded:
+    #             base_gpu_utilization = loaded["base_gpu_utilization"]
+    #         if "base_power_price" in loaded:
+    #             base_power_price = loaded["base_power_price"]
+    #         if "global_gpu_power_kw" in loaded:
+    #             global_gpu_power_kw = loaded["global_gpu_power_kw"]
+    #         if "fixed_opex_per_year" in loaded:
+    #             fixed_opex_per_year = loaded["fixed_opex_per_year"]
+    #         if "other_var_cost" in loaded:
+    #             other_variable_cost_per_gpu_h = loaded["other_var_cost"]
+    #         if "discount_rate" in loaded:
+    #             discount_rate = loaded["discount_rate"]
+    #         if "tax_rate" in loaded:
+    #             tax_rate = loaded["tax_rate"]
+    #         if "capex_lifetime_years" in loaded:
+    #             capex_lifetime_years = loaded["capex_lifetime_years"]
+    #         if "products_df" in loaded:
+    #             st.session_state["products_df"] = loaded["products_df"]
+    #         if "capacity_df" in loaded:
+    #             st.session_state["capacity_df"] = loaded["capacity_df"]
+    #         if "invest_df" in loaded:
+    #             st.session_state["invest_df"] = loaded["invest_df"]
+    #         st.sidebar.success("Excel model imported successfully.")
+    #     except Exception as e:
+    #         st.sidebar.error(f"Failed to import: {e}")
 
     # Configuration section
     st.subheader("Configuration")
