@@ -520,7 +520,8 @@ def compute_model(
 
 def main():
     st.set_page_config(page_title="AI Factory Digital Twin", layout="wide")
-    st.title("🤖 V53 Digital Twin – Scenario Simulator")
+    st.title("🤖 V53 Digital Twin")
+    st.subheader("Scenario Simulator")
 
     if "products_df" not in st.session_state:
         st.session_state["products_df"] = get_default_products()
