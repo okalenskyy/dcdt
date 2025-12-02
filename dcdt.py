@@ -520,7 +520,7 @@ def compute_model(
 
 def main():
     st.set_page_config(page_title="AI Factory Digital Twin", layout="wide")
-    st.title("🧠 AI Factory Digital Twin – Scenario Simulator")
+    st.title("🤖 V53 Digital Twin – Scenario Simulator")
 
     if "products_df" not in st.session_state:
         st.session_state["products_df"] = get_default_products()
@@ -729,27 +729,27 @@ def main():
         capex_lifetime_years=capex_lifetime_years,
     )
 
-    export_bytes = export_to_excel(
-        global_config=global_config,
-        products=st.session_state["products_df"],
-        capacity=st.session_state["capacity_df"],
-        investments=invest_df,
-        demand=demand_all,
-        capacity_summary=capacity_all,
-        financials=fin_all,
-    )
+    # export_bytes = export_to_excel(
+    #     global_config=global_config,
+    #     products=st.session_state["products_df"],
+    #     capacity=st.session_state["capacity_df"],
+    #     investments=invest_df,
+    #     demand=demand_all,
+    #     capacity_summary=capacity_all,
+    #     financials=fin_all,
+    # )
 
-    st.download_button(
-        "📥 Download current model as Excel",
-        data=export_bytes,
-        file_name="AI_Factory_Digital_Twin.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+    # st.download_button(
+    #     "📥 Download current model as Excel",
+    #     data=export_bytes,
+    #     file_name="AI_Factory_Digital_Twin.xlsx",
+    #     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    # )
 
-    # Tabs for detailed views
-    tab_overview, tab_demand, tab_capacity, tab_financials = st.tabs(
-        ["Overview (Multi-Scenario)", "Market & Demand", "Capacity", "Financials"]
-    )
+    # # Tabs for detailed views
+    # tab_overview, tab_demand, tab_capacity, tab_financials = st.tabs(
+    #     ["Overview (Multi-Scenario)", "Market & Demand", "Capacity", "Financials"]
+    # )
 
     with tab_overview:
         st.markdown("### Revenue & EBITDA over Time – Scenario Comparison")
