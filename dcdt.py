@@ -459,90 +459,90 @@ def compute_model(
 # Excel Import/Export
 # -----------------------------
 
-def load_from_excel(file) -> dict:
-    xls = pd.ExcelFile(file)
-    out = {}
+# def load_from_excel(file) -> dict:
+#     xls = pd.ExcelFile(file)
+#     out = {}
 
-    if "Global_Inputs" in xls.sheet_names:
-        gi = pd.read_excel(xls, "Global_Inputs")
-        gi = gi.set_index("Parameter")["Value"]
+#     if "Global_Inputs" in xls.sheet_names:
+#         gi = pd.read_excel(xls, "Global_Inputs")
+#         gi = gi.set_index("Parameter")["Value"]
 
-        def g(param, default=None):
-            return gi.get(param, default)
+#         def g(param, default=None):
+#             return gi.get(param, default)
 
-        out["start_year"] = int(g("Model_Start_Year", 2025))
-        out["model_years"] = int(g("Model_Years", 10))
-        out["base_TAM_gpus"] = float(g("Base_TAM_GPUs", 5460))
-        out["base_SAM_share"] = float(g("Base_SAM_Share", 0.85))
-        out["base_gpu_utilization"] = float(g("Base_GPU_Utilization", 0.65))
-        out["base_power_price"] = float(g("Base_Power_Price_per_kWh", 0.12))
-        out["global_gpu_power_kw"] = float(g("GPU_Power_kW", 0.7))
-        out["fixed_opex_per_year"] = float(g("Fixed_OPEX_per_Year", 500000))
-        out["other_var_cost"] = float(g("Other_Variable_Cost_per_GPUh", 0.02))
-        out["discount_rate"] = float(g("Discount_Rate", 0.10))
-        out["tax_rate"] = float(g("Corporate_Tax_Rate", 0.25))
-        out["capex_lifetime_years"] = int(g("CAPEX_Lifetime_Years", 5))
+#         out["start_year"] = int(g("Model_Start_Year", 2025))
+#         out["model_years"] = int(g("Model_Years", 10))
+#         out["base_TAM_gpus"] = float(g("Base_TAM_GPUs", 5460))
+#         out["base_SAM_share"] = float(g("Base_SAM_Share", 0.85))
+#         out["base_gpu_utilization"] = float(g("Base_GPU_Utilization", 0.65))
+#         out["base_power_price"] = float(g("Base_Power_Price_per_kWh", 0.12))
+#         out["global_gpu_power_kw"] = float(g("GPU_Power_kW", 0.7))
+#         out["fixed_opex_per_year"] = float(g("Fixed_OPEX_per_Year", 500000))
+#         out["other_var_cost"] = float(g("Other_Variable_Cost_per_GPUh", 0.02))
+#         out["discount_rate"] = float(g("Discount_Rate", 0.10))
+#         out["tax_rate"] = float(g("Corporate_Tax_Rate", 0.25))
+#         out["capex_lifetime_years"] = int(g("CAPEX_Lifetime_Years", 5))
 
-    if "Products" in xls.sheet_names:
-        out["products_df"] = pd.read_excel(xls, "Products")
+#     if "Products" in xls.sheet_names:
+#         out["products_df"] = pd.read_excel(xls, "Products")
 
-    if "Capacity" in xls.sheet_names:
-        out["capacity_df"] = pd.read_excel(xls, "Capacity")
+#     if "Capacity" in xls.sheet_names:
+#         out["capacity_df"] = pd.read_excel(xls, "Capacity")
 
-    if "Investment" in xls.sheet_names:
-        inv_df = pd.read_excel(xls, "Investment")
-        if "Total_CAPEX_EUR" not in inv_df.columns:
-            inv_df["Total_CAPEX_EUR"] = (
-                inv_df["CAPEX_IT_EUR"]
-                + inv_df["CAPEX_Building_EUR"]
-                + inv_df["CAPEX_Cooling_EUR"]
-                + inv_df["CAPEX_Network_EUR"]
-            )
-        out["invest_df"] = inv_df
+#     if "Investment" in xls.sheet_names:
+#         inv_df = pd.read_excel(xls, "Investment")
+#         if "Total_CAPEX_EUR" not in inv_df.columns:
+#             inv_df["Total_CAPEX_EUR"] = (
+#                 inv_df["CAPEX_IT_EUR"]
+#                 + inv_df["CAPEX_Building_EUR"]
+#                 + inv_df["CAPEX_Cooling_EUR"]
+#                 + inv_df["CAPEX_Network_EUR"]
+#             )
+#         out["invest_df"] = inv_df
 
-    return out
+#     return out
 
 
-def export_to_excel(
-    global_config: dict,
-    products: pd.DataFrame,
-    capacity: pd.DataFrame,
-    investments: pd.DataFrame,
-    demand: pd.DataFrame,
-    capacity_summary: pd.DataFrame,
-    financials: pd.DataFrame,
-    forecast: pd.DataFrame,
-) -> bytes:
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
-        gi_rows = [
-            ("Model_Start_Year", global_config["start_year"], "Year"),
-            ("Model_Years", global_config["model_years"], "Years"),
-            ("Hours_per_Year", 8760, "Hours"),
-            ("Discount_Rate", global_config["discount_rate"], ""),
-            ("Base_TAM_GPUs", global_config["base_TAM_gpus"], "GPUs"),
-            ("Base_SAM_Share", global_config["base_SAM_share"], ""),
-            ("Base_GPU_Utilization", global_config["base_gpu_utilization"], ""),
-            ("Base_Power_Price_per_kWh", global_config["base_power_price"], "EUR/kWh"),
-            ("GPU_Power_kW", global_config["global_gpu_power_kw"], "kW"),
-            ("Fixed_OPEX_per_Year", global_config["fixed_opex_per_year"], "EUR"),
-            ("Other_Variable_Cost_per_GPUh", global_config["other_var_cost"], "EUR/GPUh"),
-            ("Corporate_Tax_Rate", global_config["tax_rate"], ""),
-            ("CAPEX_Lifetime_Years", global_config["capex_lifetime_years"], "Years"),
-        ]
-        gi_df = pd.DataFrame(gi_rows, columns=["Parameter", "Value", "Unit"])
-        gi_df.to_excel(writer, sheet_name="Global_Inputs", index=False)
+# def export_to_excel(
+#     global_config: dict,
+#     products: pd.DataFrame,
+#     capacity: pd.DataFrame,
+#     investments: pd.DataFrame,
+#     demand: pd.DataFrame,
+#     capacity_summary: pd.DataFrame,
+#     financials: pd.DataFrame,
+#     forecast: pd.DataFrame,
+# ) -> bytes:
+#     buf = io.BytesIO()
+    # with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
+    #     gi_rows = [
+    #         ("Model_Start_Year", global_config["start_year"], "Year"),
+    #         ("Model_Years", global_config["model_years"], "Years"),
+    #         ("Hours_per_Year", 8760, "Hours"),
+    #         ("Discount_Rate", global_config["discount_rate"], ""),
+    #         ("Base_TAM_GPUs", global_config["base_TAM_gpus"], "GPUs"),
+    #         ("Base_SAM_Share", global_config["base_SAM_share"], ""),
+    #         ("Base_GPU_Utilization", global_config["base_gpu_utilization"], ""),
+    #         ("Base_Power_Price_per_kWh", global_config["base_power_price"], "EUR/kWh"),
+    #         ("GPU_Power_kW", global_config["global_gpu_power_kw"], "kW"),
+    #         ("Fixed_OPEX_per_Year", global_config["fixed_opex_per_year"], "EUR"),
+    #         ("Other_Variable_Cost_per_GPUh", global_config["other_var_cost"], "EUR/GPUh"),
+    #         ("Corporate_Tax_Rate", global_config["tax_rate"], ""),
+    #         ("CAPEX_Lifetime_Years", global_config["capex_lifetime_years"], "Years"),
+    #     ]
+    #     gi_df = pd.DataFrame(gi_rows, columns=["Parameter", "Value", "Unit"])
+    #     gi_df.to_excel(writer, sheet_name="Global_Inputs", index=False)
 
-        products.to_excel(writer, sheet_name="Products", index=False)
-        capacity.to_excel(writer, sheet_name="Capacity", index=False)
-        investments.to_excel(writer, sheet_name="Investment", index=False)
-        demand.to_excel(writer, sheet_name="Market_Demand", index=False)
-        capacity_summary.to_excel(writer, sheet_name="Capacity_Summary", index=False)
-        financials.to_excel(writer, sheet_name="Financials", index=False)
-        forecast.to_excel(writer, sheet_name="Capacity_Revenue_Forecast", index=False)
+    #     products.to_excel(writer, sheet_name="Products", index=False)
+    #     capacity.to_excel(writer, sheet_name="Capacity", index=False)
+    #     investments.to_excel(writer, sheet_name="Investment", index=False)
+    #     demand.to_excel(writer, sheet_name="Market_Demand", index=False)
+    #     capacity_summary.to_excel(writer, sheet_name="Capacity_Summary", index=False)
+    #     financials.to_excel(writer, sheet_name="Financials", index=False)
+    #     forecast.to_excel(writer, sheet_name="Capacity_Revenue_Forecast", index=False)
 
-    buf.seek(0)
-    return buf.getvalue()
+    # buf.seek(0)
+    # return buf.getvalue()
 
 
 # -----------------------------
