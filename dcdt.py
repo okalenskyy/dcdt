@@ -520,7 +520,7 @@ def compute_model(
 
 def main():
     st.set_page_config(page_title="V53 Digital Twin", layout="wide")
-    st.title("🤖 V53 Digital Twin")
+    st.title("V53 Digital Twin")
     st.subheader("Scenario Simulator")
     st.markdown("***")
     st.text(" ")
