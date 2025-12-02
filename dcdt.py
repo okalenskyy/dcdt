@@ -205,11 +205,10 @@ def get_scenario_presets():
 
 
 # -----------------------------
-# Model Computation
+# Power price by year (tariff-aware)
 # -----------------------------
 
 def get_power_price_for_year(year, tariffs_df, scenario_power_mult, default_price):
-    """Pick applicable tariff for given year, then apply scenario multiplier."""
     if tariffs_df is None or tariffs_df.empty:
         return default_price * scenario_power_mult
     valid = tariffs_df[tariffs_df["Start_Year"] <= year]
@@ -219,6 +218,10 @@ def get_power_price_for_year(year, tariffs_df, scenario_power_mult, default_pric
         base = valid.sort_values("Start_Year").iloc[-1]["Power_Price_EUR_per_kWh"]
     return base * scenario_power_mult
 
+
+# -----------------------------
+# Core Model Computation
+# -----------------------------
 
 def compute_model(
     start_year: int,
@@ -305,11 +308,9 @@ def compute_model(
 
     df_demand = pd.DataFrame(rows)
 
-    # Capacity per year (still uses global GPU power for kW sizing)
+    # Capacity per year (global GPU kW for sizing infra)
     cap_ph = capacity_phases.copy()
     cap_rows = []
-    for _, ph in cap_ph.iterrows():
-        ph["kW_Load_in_Phase"] = ph["GPUs_Installed_in_Phase"] * global_gpu_power_kw
     for i, year in enumerate(calendar_years):
         active = cap_ph[cap_ph["Start_Year"] <= year]
         total_gpus = active["GPUs_Installed_in_Phase"].sum()
@@ -332,9 +333,12 @@ def compute_model(
     inv["Annual_Depreciation_EUR"] = inv["Total_CAPEX_EUR"] / capex_lifetime_years
 
     fin_rows = []
+    forecast_rows = []
+
     for i, year in enumerate(calendar_years):
         year_index = i + 1
         df_y = df_demand[df_demand["Year_Index"] == year_index]
+        cap_y = df_capacity[df_capacity["Year_Index"] == year_index].iloc[0]
 
         total_gpu_hours = df_y["GPU_Hours_Sold"].sum()
         revenue = (df_y["GPU_Hours_Sold"] * df_y["Price_per_GPUh_EUR"]).sum()
@@ -370,6 +374,32 @@ def compute_model(
         capex_this_year = inv[inv["Start_Year"] == year]["Total_CAPEX_EUR"].sum()
         free_cash_flow = net_income + dep_active - capex_this_year
 
+        # --- Capacity + Revenue Forecasting Engine (capacity constraint) ---
+        capacity_gpu_hours = cap_y["Total_GPU_Hours_at_Base_Utilization"]
+        constrained_gpu_hours = min(total_gpu_hours, capacity_gpu_hours)
+        lost_gpu_hours = max(total_gpu_hours - capacity_gpu_hours, 0)
+
+        avg_price = revenue / total_gpu_hours if total_gpu_hours > 0 else 0
+        potential_revenue = revenue
+        constrained_revenue = constrained_gpu_hours * avg_price
+        lost_revenue = potential_revenue - constrained_revenue
+
+        forecast_rows.append(
+            {
+                "Scenario": scenario_name,
+                "Year_Index": year_index,
+                "Calendar_Year": year,
+                "Demand_GPU_Hours": total_gpu_hours,
+                "Capacity_GPU_Hours": capacity_gpu_hours,
+                "Constrained_GPU_Hours": constrained_gpu_hours,
+                "Lost_GPU_Hours": lost_gpu_hours,
+                "Avg_Price_EUR_per_GPUh": avg_price,
+                "Potential_Revenue_EUR": potential_revenue,
+                "Capacity_Constrained_Revenue_EUR": constrained_revenue,
+                "Lost_Revenue_EUR": lost_revenue,
+            }
+        )
+
         fin_rows.append(
             {
                 "Scenario": scenario_name,
@@ -394,6 +424,7 @@ def compute_model(
         )
 
     df_fin = pd.DataFrame(fin_rows)
+    df_forecast = pd.DataFrame(forecast_rows)
 
     cash_flows = df_fin["Free_Cash_Flow_EUR"].values
     discount_factors = 1 / (1 + discount_rate) ** np.arange(1, model_years + 1)
@@ -421,97 +452,198 @@ def compute_model(
         "Last_Year_EBITDA": float(df_fin["EBITDA_EUR"].iloc[-1]),
     }
 
-    return df_demand, df_capacity, df_fin, summary
+    return df_demand, df_capacity, df_fin, df_forecast, summary
 
 
-# # -----------------------------
-# # Excel Import/Export
-# # -----------------------------
+# -----------------------------
+# Excel Import/Export
+# -----------------------------
 
-# def load_from_excel(file) -> dict:
-#     """Expect sheets: Global_Inputs, Products, Capacity, Investment."""
-#     xls = pd.ExcelFile(file)
-#     out = {}
+def load_from_excel(file) -> dict:
+    xls = pd.ExcelFile(file)
+    out = {}
 
-#     if "Global_Inputs" in xls.sheet_names:
-#         gi = pd.read_excel(xls, "Global_Inputs")
-#         gi = gi.set_index("Parameter")["Value"]
+    if "Global_Inputs" in xls.sheet_names:
+        gi = pd.read_excel(xls, "Global_Inputs")
+        gi = gi.set_index("Parameter")["Value"]
 
-#         def g(param, default=None):
-#             return gi.get(param, default)
+        def g(param, default=None):
+            return gi.get(param, default)
 
-#         out["start_year"] = int(g("Model_Start_Year", 2025))
-#         out["model_years"] = int(g("Model_Years", 10))
-#         out["base_TAM_gpus"] = float(g("Base_TAM_GPUs", 5460))
-#         out["base_SAM_share"] = float(g("Base_SAM_Share", 0.85))
-#         out["base_gpu_utilization"] = float(g("Base_GPU_Utilization", 0.65))
-#         out["base_power_price"] = float(g("Base_Power_Price_per_kWh", 0.12))
-#         out["global_gpu_power_kw"] = float(g("GPU_Power_kW", 0.7))
-#         out["fixed_opex_per_year"] = float(g("Fixed_OPEX_per_Year", 500000))
-#         out["other_var_cost"] = float(g("Other_Variable_Cost_per_GPUh", 0.02))
-#         out["discount_rate"] = float(g("Discount_Rate", 0.10))
-#         out["tax_rate"] = float(g("Corporate_Tax_Rate", 0.25))
-#         out["capex_lifetime_years"] = int(g("CAPEX_Lifetime_Years", 5))
+        out["start_year"] = int(g("Model_Start_Year", 2025))
+        out["model_years"] = int(g("Model_Years", 10))
+        out["base_TAM_gpus"] = float(g("Base_TAM_GPUs", 5460))
+        out["base_SAM_share"] = float(g("Base_SAM_Share", 0.85))
+        out["base_gpu_utilization"] = float(g("Base_GPU_Utilization", 0.65))
+        out["base_power_price"] = float(g("Base_Power_Price_per_kWh", 0.12))
+        out["global_gpu_power_kw"] = float(g("GPU_Power_kW", 0.7))
+        out["fixed_opex_per_year"] = float(g("Fixed_OPEX_per_Year", 500000))
+        out["other_var_cost"] = float(g("Other_Variable_Cost_per_GPUh", 0.02))
+        out["discount_rate"] = float(g("Discount_Rate", 0.10))
+        out["tax_rate"] = float(g("Corporate_Tax_Rate", 0.25))
+        out["capex_lifetime_years"] = int(g("CAPEX_Lifetime_Years", 5))
 
-#     if "Products" in xls.sheet_names:
-#         out["products_df"] = pd.read_excel(xls, "Products")
+    if "Products" in xls.sheet_names:
+        out["products_df"] = pd.read_excel(xls, "Products")
 
-#     if "Capacity" in xls.sheet_names:
-#         out["capacity_df"] = pd.read_excel(xls, "Capacity")
+    if "Capacity" in xls.sheet_names:
+        out["capacity_df"] = pd.read_excel(xls, "Capacity")
 
-#     if "Investment" in xls.sheet_names:
-#         inv_df = pd.read_excel(xls, "Investment")
-#         if "Total_CAPEX_EUR" not in inv_df.columns:
-#             inv_df["Total_CAPEX_EUR"] = (
-#                 inv_df["CAPEX_IT_EUR"]
-#                 + inv_df["CAPEX_Building_EUR"]
-#                 + inv_df["CAPEX_Cooling_EUR"]
-#                 + inv_df["CAPEX_Network_EUR"]
-#             )
-#         out["invest_df"] = inv_df
+    if "Investment" in xls.sheet_names:
+        inv_df = pd.read_excel(xls, "Investment")
+        if "Total_CAPEX_EUR" not in inv_df.columns:
+            inv_df["Total_CAPEX_EUR"] = (
+                inv_df["CAPEX_IT_EUR"]
+                + inv_df["CAPEX_Building_EUR"]
+                + inv_df["CAPEX_Cooling_EUR"]
+                + inv_df["CAPEX_Network_EUR"]
+            )
+        out["invest_df"] = inv_df
 
-#     return out
+    return out
 
 
-# def export_to_excel(
-#     global_config: dict,
-#     products: pd.DataFrame,
-#     capacity: pd.DataFrame,
-#     investments: pd.DataFrame,
-#     demand: pd.DataFrame,
-#     capacity_summary: pd.DataFrame,
-#     financials: pd.DataFrame,
-# ) -> bytes:
-#     buf = io.BytesIO()
-#     with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
-#         # Global_Inputs
-#         gi_rows = [
-#             ("Model_Start_Year", global_config["start_year"], "Year"),
-#             ("Model_Years", global_config["model_years"], "Years"),
-#             ("Hours_per_Year", 8760, "Hours"),
-#             ("Discount_Rate", global_config["discount_rate"], ""),
-#             ("Base_TAM_GPUs", global_config["base_TAM_gpus"], "GPUs"),
-#             ("Base_SAM_Share", global_config["base_SAM_share"], ""),
-#             ("Base_GPU_Utilization", global_config["base_gpu_utilization"], ""),
-#             ("Base_Power_Price_per_kWh", global_config["base_power_price"], "EUR/kWh"),
-#             ("GPU_Power_kW", global_config["global_gpu_power_kw"], "kW"),
-#             ("Fixed_OPEX_per_Year", global_config["fixed_opex_per_year"], "EUR"),
-#             ("Other_Variable_Cost_per_GPUh", global_config["other_var_cost"], "EUR/GPUh"),
-#             ("Corporate_Tax_Rate", global_config["tax_rate"], ""),
-#             ("CAPEX_Lifetime_Years", global_config["capex_lifetime_years"], "Years"),
-#         ]
-#         gi_df = pd.DataFrame(gi_rows, columns=["Parameter", "Value", "Unit"])
-#         gi_df.to_excel(writer, sheet_name="Global_Inputs", index=False)
+def export_to_excel(
+    global_config: dict,
+    products: pd.DataFrame,
+    capacity: pd.DataFrame,
+    investments: pd.DataFrame,
+    demand: pd.DataFrame,
+    capacity_summary: pd.DataFrame,
+    financials: pd.DataFrame,
+    forecast: pd.DataFrame,
+) -> bytes:
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
+        gi_rows = [
+            ("Model_Start_Year", global_config["start_year"], "Year"),
+            ("Model_Years", global_config["model_years"], "Years"),
+            ("Hours_per_Year", 8760, "Hours"),
+            ("Discount_Rate", global_config["discount_rate"], ""),
+            ("Base_TAM_GPUs", global_config["base_TAM_gpus"], "GPUs"),
+            ("Base_SAM_Share", global_config["base_SAM_share"], ""),
+            ("Base_GPU_Utilization", global_config["base_gpu_utilization"], ""),
+            ("Base_Power_Price_per_kWh", global_config["base_power_price"], "EUR/kWh"),
+            ("GPU_Power_kW", global_config["global_gpu_power_kw"], "kW"),
+            ("Fixed_OPEX_per_Year", global_config["fixed_opex_per_year"], "EUR"),
+            ("Other_Variable_Cost_per_GPUh", global_config["other_var_cost"], "EUR/GPUh"),
+            ("Corporate_Tax_Rate", global_config["tax_rate"], ""),
+            ("CAPEX_Lifetime_Years", global_config["capex_lifetime_years"], "Years"),
+        ]
+        gi_df = pd.DataFrame(gi_rows, columns=["Parameter", "Value", "Unit"])
+        gi_df.to_excel(writer, sheet_name="Global_Inputs", index=False)
 
-#         products.to_excel(writer, sheet_name="Products", index=False)
-#         capacity.to_excel(writer, sheet_name="Capacity", index=False)
-#         investments.to_excel(writer, sheet_name="Investment", index=False)
-#         demand.to_excel(writer, sheet_name="Market_Demand", index=False)
-#         capacity_summary.to_excel(writer, sheet_name="Capacity_Summary", index=False)
-#         financials.to_excel(writer, sheet_name="Financials", index=False)
+        products.to_excel(writer, sheet_name="Products", index=False)
+        capacity.to_excel(writer, sheet_name="Capacity", index=False)
+        investments.to_excel(writer, sheet_name="Investment", index=False)
+        demand.to_excel(writer, sheet_name="Market_Demand", index=False)
+        capacity_summary.to_excel(writer, sheet_name="Capacity_Summary", index=False)
+        financials.to_excel(writer, sheet_name="Financials", index=False)
+        forecast.to_excel(writer, sheet_name="Capacity_Revenue_Forecast", index=False)
 
-#     buf.seek(0)
-#     return buf.getvalue()
+    buf.seek(0)
+    return buf.getvalue()
+
+
+# -----------------------------
+# Monte Carlo Risk Model
+# -----------------------------
+
+def run_monte_carlo(
+    n_sims: int,
+    base_params: dict,
+    products: pd.DataFrame,
+    capacity_phases: pd.DataFrame,
+    investments: pd.DataFrame,
+    gpu_skus: pd.DataFrame,
+    tariffs: pd.DataFrame,
+    scenario: dict,
+    hours_per_year: float,
+    vol: dict,
+):
+    results = []
+
+    for i in range(n_sims):
+        # Sample multipliers ~ Normal(1, sigma) but clipped positive
+        def draw_mult(key):
+            sigma = vol.get(key, 0.0) / 100.0
+            if sigma <= 0:
+                return 1.0
+            m = np.random.normal(1.0, sigma)
+            return max(m, 0.01)
+
+        demand_mult = draw_mult("demand")
+        price_mult = draw_mult("price")
+        power_mult = draw_mult("power")
+        util_mult = draw_mult("utilization")
+        capex_mult = draw_mult("capex")
+        opex_mult = draw_mult("opex")
+
+        # Perturb base parameters
+        base_TAM = base_params["base_TAM_gpus"] * demand_mult
+        base_SAM_share = base_params["base_SAM_share"]  # keep structural
+        base_gpu_util = base_params["base_gpu_utilization"] * util_mult
+        base_power_price = base_params["base_power_price"] * power_mult
+        fixed_opex = base_params["fixed_opex_per_year"] * opex_mult
+
+        # Scale product prices & variable costs
+        prod_sim = products.copy()
+        prod_sim["Price_per_GPUh_EUR"] = prod_sim["Price_per_GPUh_EUR"] * price_mult
+        prod_sim["Variable_Cost_per_GPUh_EUR"] = prod_sim["Variable_Cost_per_GPUh_EUR"] * price_mult * 0.3
+
+        # Scale CAPEX
+        inv_sim = investments.copy()
+        inv_sim["Total_CAPEX_EUR"] = inv_sim["Total_CAPEX_EUR"] * capex_mult
+
+        demand_df, capacity_df, fin_df, forecast_df, summary = compute_model(
+            start_year=base_params["start_year"],
+            model_years=base_params["model_years"],
+            hours_per_year=hours_per_year,
+            discount_rate=base_params["discount_rate"],
+            base_TAM_gpus=base_TAM,
+            base_SAM_share=base_SAM_share,
+            base_SOM_year1=scenario["Base_SOM_Year1"],
+            SOM_growth_per_year=scenario["SOM_Growth"],
+            base_gpu_utilization=base_gpu_util,
+            base_power_price=base_power_price,
+            global_gpu_power_kw=base_params["global_gpu_power_kw"],
+            fixed_opex_per_year=fixed_opex,
+            other_variable_cost_per_gpu_h=base_params["other_var_cost"],
+            tax_rate=base_params["tax_rate"],
+            capex_lifetime_years=base_params["capex_lifetime_years"],
+            products=prod_sim,
+            capacity_phases=capacity_phases,
+            investments=inv_sim,
+            gpu_skus=gpu_skus,
+            tariffs=tariffs,
+            scenario=scenario,
+            scenario_name="MC",
+        )
+
+        # Capacity utilization metric
+        cap_merge = fin_df.merge(
+            capacity_df[["Calendar_Year", "Total_GPU_Hours_at_Base_Utilization"]],
+            on="Calendar_Year",
+            how="left",
+        )
+        cap_merge["Utilization_Ratio"] = cap_merge["Total_GPU_Hours_Sold"] / cap_merge[
+            "Total_GPU_Hours_at_Base_Utilization"
+        ].replace(0, np.nan)
+        avg_util = float(cap_merge["Utilization_Ratio"].mean(skipna=True))
+
+        results.append(
+            {
+                "Sim": i + 1,
+                "NPV_EUR": summary["NPV_EUR"],
+                "IRR": summary["IRR"],
+                "Peak_Revenue": summary["Peak_Revenue"],
+                "Peak_EBITDA": summary["Peak_EBITDA"],
+                "Last_Year_Revenue": summary["Last_Year_Revenue"],
+                "Avg_Capacity_Utilization": avg_util,
+            }
+        )
+
+    return pd.DataFrame(results)
 
 
 # -----------------------------
@@ -519,12 +651,10 @@ def compute_model(
 # -----------------------------
 
 def main():
-    st.set_page_config(page_title="V53 Digital Twin", layout="wide")
-    st.title("V53 Digital Twin")
-    st.subheader("Scenario Simulator")
-    st.markdown("***")
-    st.text(" ")
+    st.set_page_config(page_title="AI Factory Digital Twin", layout="wide")
+    st.title("🧠 AI Factory Digital Twin – Scenario, Capacity & Risk Simulator")
 
+    # Session state defaults
     if "products_df" not in st.session_state:
         st.session_state["products_df"] = get_default_products()
     if "capacity_df" not in st.session_state:
@@ -536,7 +666,7 @@ def main():
     if "tariffs_df" not in st.session_state:
         st.session_state["tariffs_df"] = get_default_tariffs()
 
-    # Sidebar: Global Inputs & Scenario
+    # Sidebar: Global Inputs
     st.sidebar.header("Global Assumptions")
 
     start_year = st.sidebar.number_input("Start Year", value=2025, step=1)
@@ -574,44 +704,44 @@ def main():
         selected_scenarios = ["Base Case"]
 
     # File upload: load from Excel
-    # st.sidebar.header("Import from Excel")
-    # uploaded = st.sidebar.file_uploader("Upload scenario Excel", type=["xlsx"])
-    # if uploaded is not None:
-    #     try:
-    #         loaded = load_from_excel(uploaded)
-    #         if "start_year" in loaded:
-    #             start_year = loaded["start_year"]
-    #         if "model_years" in loaded:
-    #             model_years = loaded["model_years"]
-    #         if "base_TAM_gpus" in loaded:
-    #             base_TAM_gpus = loaded["base_TAM_gpus"]
-    #         if "base_SAM_share" in loaded:
-    #             base_SAM_share = loaded["base_SAM_share"]
-    #         if "base_gpu_utilization" in loaded:
-    #             base_gpu_utilization = loaded["base_gpu_utilization"]
-    #         if "base_power_price" in loaded:
-    #             base_power_price = loaded["base_power_price"]
-    #         if "global_gpu_power_kw" in loaded:
-    #             global_gpu_power_kw = loaded["global_gpu_power_kw"]
-    #         if "fixed_opex_per_year" in loaded:
-    #             fixed_opex_per_year = loaded["fixed_opex_per_year"]
-    #         if "other_var_cost" in loaded:
-    #             other_variable_cost_per_gpu_h = loaded["other_var_cost"]
-    #         if "discount_rate" in loaded:
-    #             discount_rate = loaded["discount_rate"]
-    #         if "tax_rate" in loaded:
-    #             tax_rate = loaded["tax_rate"]
-    #         if "capex_lifetime_years" in loaded:
-    #             capex_lifetime_years = loaded["capex_lifetime_years"]
-    #         if "products_df" in loaded:
-    #             st.session_state["products_df"] = loaded["products_df"]
-    #         if "capacity_df" in loaded:
-    #             st.session_state["capacity_df"] = loaded["capacity_df"]
-    #         if "invest_df" in loaded:
-    #             st.session_state["invest_df"] = loaded["invest_df"]
-    #         st.sidebar.success("Excel model imported successfully.")
-    #     except Exception as e:
-    #         st.sidebar.error(f"Failed to import: {e}")
+    st.sidebar.header("Import from Excel")
+    uploaded = st.sidebar.file_uploader("Upload scenario Excel", type=["xlsx"])
+    if uploaded is not None:
+        try:
+            loaded = load_from_excel(uploaded)
+            if "start_year" in loaded:
+                start_year = loaded["start_year"]
+            if "model_years" in loaded:
+                model_years = loaded["model_years"]
+            if "base_TAM_gpus" in loaded:
+                base_TAM_gpus = loaded["base_TAM_gpus"]
+            if "base_SAM_share" in loaded:
+                base_SAM_share = loaded["base_SAM_share"]
+            if "base_gpu_utilization" in loaded:
+                base_gpu_utilization = loaded["base_gpu_utilization"]
+            if "base_power_price" in loaded:
+                base_power_price = loaded["base_power_price"]
+            if "global_gpu_power_kw" in loaded:
+                global_gpu_power_kw = loaded["global_gpu_power_kw"]
+            if "fixed_opex_per_year" in loaded:
+                fixed_opex_per_year = loaded["fixed_opex_per_year"]
+            if "other_var_cost" in loaded:
+                other_variable_cost_per_gpu_h = loaded["other_var_cost"]
+            if "discount_rate" in loaded:
+                discount_rate = loaded["discount_rate"]
+            if "tax_rate" in loaded:
+                tax_rate = loaded["tax_rate"]
+            if "capex_lifetime_years" in loaded:
+                capex_lifetime_years = loaded["capex_lifetime_years"]
+            if "products_df" in loaded:
+                st.session_state["products_df"] = loaded["products_df"]
+            if "capacity_df" in loaded:
+                st.session_state["capacity_df"] = loaded["capacity_df"]
+            if "invest_df" in loaded:
+                st.session_state["invest_df"] = loaded["invest_df"]
+            st.sidebar.success("Excel model imported successfully.")
+        except Exception as e:
+            st.sidebar.error(f"Failed to import: {e}")
 
     # Configuration section
     st.subheader("Configuration")
@@ -674,11 +804,12 @@ def main():
     all_demand = []
     all_capacity = []
     all_financials = []
+    all_forecasts = []
     summaries = []
 
     for scen_name in selected_scenarios:
         scen = scenarios[scen_name]
-        demand_df, capacity_df, fin_df, summary = compute_model(
+        demand_df, capacity_df, fin_df, forecast_df, summary = compute_model(
             start_year=start_year,
             model_years=model_years,
             hours_per_year=hours_per_year,
@@ -705,11 +836,13 @@ def main():
         all_demand.append(demand_df)
         all_capacity.append(capacity_df)
         all_financials.append(fin_df)
+        all_forecasts.append(forecast_df)
         summaries.append(summary)
 
     demand_all = pd.concat(all_demand, ignore_index=True)
     capacity_all = pd.concat(all_capacity, ignore_index=True)
     fin_all = pd.concat(all_financials, ignore_index=True)
+    forecast_all = pd.concat(all_forecasts, ignore_index=True)
     summary_df = pd.DataFrame(summaries)
 
     # KPIs
@@ -732,26 +865,27 @@ def main():
         capex_lifetime_years=capex_lifetime_years,
     )
 
-    # export_bytes = export_to_excel(
-    #     global_config=global_config,
-    #     products=st.session_state["products_df"],
-    #     capacity=st.session_state["capacity_df"],
-    #     investments=invest_df,
-    #     demand=demand_all,
-    #     capacity_summary=capacity_all,
-    #     financials=fin_all,
-    # )
+    export_bytes = export_to_excel(
+        global_config=global_config,
+        products=st.session_state["products_df"],
+        capacity=st.session_state["capacity_df"],
+        investments=invest_df,
+        demand=demand_all,
+        capacity_summary=capacity_all,
+        financials=fin_all,
+        forecast=forecast_all,
+    )
 
-    # st.download_button(
-    #     "📥 Download current model as Excel",
-    #     data=export_bytes,
-    #     file_name="AI_Factory_Digital_Twin.xlsx",
-    #     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    # )
+    st.download_button(
+        "📥 Download current model as Excel",
+        data=export_bytes,
+        file_name="AI_Factory_Digital_Twin.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
-    # Tabs for detailed views
-    tab_overview, tab_demand, tab_capacity, tab_financials = st.tabs(
-        ["Overview (Multi-Scenario)", "Market & Demand", "Capacity", "Financials"]
+    # Tabs
+    tab_overview, tab_demand, tab_capacity, tab_financials, tab_risk = st.tabs(
+        ["Overview (Multi-Scenario)", "Market & Demand", "Capacity & Forecast", "Financials", "Risk & Monte Carlo"]
     )
 
     with tab_overview:
@@ -775,7 +909,7 @@ def main():
         st.markdown("### Market Demand by Year, Product and Scenario")
         st.dataframe(demand_all, use_container_width=True, height=400)
 
-        st.markdown("### GPU-Hours Sold by Product (Base Case only for clarity)")
+        st.markdown("### GPU-Hours Sold by Product (first selected scenario)")
         base_only = demand_all[demand_all["Scenario"] == selected_scenarios[0]]
         pivot = (
             base_only.pivot_table(
@@ -789,15 +923,15 @@ def main():
         st.area_chart(pivot)
 
     with tab_capacity:
-        st.markdown("### Capacity by Year (Base Case)")
+        st.markdown("### Capacity by Year (first selected scenario)")
         base_cap = capacity_all[capacity_all["Scenario"] == selected_scenarios[0]]
         st.dataframe(base_cap, use_container_width=True, height=300)
 
-        st.markdown("### Total Capacity (GPUs) – Base Case")
+        st.markdown("### Total Capacity (GPUs) – first scenario")
         cap_plot = base_cap[["Calendar_Year", "Total_Capacity_GPUs"]].set_index("Calendar_Year")
         st.bar_chart(cap_plot)
 
-        st.markdown("### Capacity vs Demand – Approx GPUs (Base Case)")
+        st.markdown("### Capacity vs Demand – Approx GPUs (first scenario)")
         base_fin = fin_all[fin_all["Scenario"] == selected_scenarios[0]].copy()
         approx_demand_gpus = base_fin["Total_GPU_Hours_Sold"] / (
             hours_per_year * base_gpu_utilization
@@ -809,14 +943,108 @@ def main():
         ].set_index("Calendar_Year")
         st.line_chart(comp)
 
+        st.markdown("### Capacity + Revenue Forecast Engine (first scenario)")
+        base_forecast = forecast_all[forecast_all["Scenario"] == selected_scenarios[0]].copy()
+        st.dataframe(base_forecast, use_container_width=True, height=300)
+
+        st.markdown("Potential vs Capacity-Constrained Revenue")
+        rev_comp = base_forecast[
+            ["Calendar_Year", "Potential_Revenue_EUR", "Capacity_Constrained_Revenue_EUR"]
+        ].set_index("Calendar_Year")
+        st.line_chart(rev_comp)
+
+        st.markdown("Lost Revenue due to Capacity Limits")
+        lost_rev_plot = base_forecast[["Calendar_Year", "Lost_Revenue_EUR"]].set_index("Calendar_Year")
+        st.bar_chart(lost_rev_plot)
+
     with tab_financials:
         st.markdown("### Financial Statements by Year and Scenario")
         st.dataframe(fin_all, use_container_width=True, height=400)
 
-        st.markdown("### Free Cash Flow (Base Case)")
+        st.markdown("### Free Cash Flow (first scenario)")
         base_fin = fin_all[fin_all["Scenario"] == selected_scenarios[0]]
         fcf_plot = base_fin[["Calendar_Year", "Free_Cash_Flow_EUR"]].set_index("Calendar_Year")
         st.bar_chart(fcf_plot)
+
+    with tab_risk:
+        st.markdown("## Monte Carlo Risk Model")
+
+        colR1, colR2, colR3 = st.columns(3)
+        with colR1:
+            n_sims = st.number_input("Number of simulations", min_value=100, max_value=5000, value=500, step=100)
+        with colR2:
+            demand_vol = st.number_input("Demand (TAM) volatility %", value=15.0, step=1.0)
+            price_vol = st.number_input("Price volatility %", value=10.0, step=1.0)
+            power_vol = st.number_input("Power price volatility %", value=20.0, step=1.0)
+        with colR3:
+            util_vol = st.number_input("Utilization volatility %", value=10.0, step=1.0)
+            capex_vol = st.number_input("CAPEX volatility %", value=15.0, step=1.0)
+            opex_vol = st.number_input("Fixed OPEX volatility %", value=10.0, step=1.0)
+
+        run_mc = st.button("Run Monte Carlo on first selected scenario")
+
+        if run_mc:
+            base_params = dict(
+                start_year=start_year,
+                model_years=model_years,
+                base_TAM_gpus=base_TAM_gpus,
+                base_SAM_share=base_SAM_share,
+                base_gpu_utilization=base_gpu_utilization,
+                base_power_price=base_power_price,
+                global_gpu_power_kw=global_gpu_power_kw,
+                fixed_opex_per_year=fixed_opex_per_year,
+                other_var_cost=other_variable_cost_per_gpu_h,
+                discount_rate=discount_rate,
+                tax_rate=tax_rate,
+                capex_lifetime_years=capex_lifetime_years,
+            )
+            vol = dict(
+                demand=demand_vol,
+                price=price_vol,
+                power=power_vol,
+                utilization=util_vol,
+                capex=capex_vol,
+                opex=opex_vol,
+            )
+            scen = scenarios[selected_scenarios[0]]
+
+            mc_results = run_monte_carlo(
+                n_sims=n_sims,
+                base_params=base_params,
+                products=st.session_state["products_df"],
+                capacity_phases=st.session_state["capacity_df"],
+                investments=invest_df,
+                gpu_skus=st.session_state["gpu_skus_df"],
+                tariffs=st.session_state["tariffs_df"],
+                scenario=scen,
+                hours_per_year=hours_per_year,
+                vol=vol,
+            )
+
+            st.markdown("### Simulation Results (summary table)")
+            st.dataframe(mc_results, use_container_width=True, height=300)
+
+            st.markdown("### NPV Distribution")
+            npv_hist, npv_bins = np.histogram(mc_results["NPV_EUR"].dropna(), bins=30)
+            npv_hist_df = pd.DataFrame({"bin": npv_bins[:-1], "count": npv_hist}).set_index("bin")
+            st.bar_chart(npv_hist_df)
+
+            st.markdown("### IRR Distribution")
+            irr_valid = mc_results["IRR"].dropna()
+            if not irr_valid.empty:
+                irr_hist, irr_bins = np.histogram(irr_valid, bins=30)
+                irr_hist_df = pd.DataFrame({"bin": irr_bins[:-1], "count": irr_hist}).set_index("bin")
+                st.bar_chart(irr_hist_df)
+            else:
+                st.write("IRR not available in simulations (e.g., sign patterns not suitable).")
+
+            st.markdown("### Capacity Utilization Distribution")
+            util_hist, util_bins = np.histogram(mc_results["Avg_Capacity_Utilization"].dropna(), bins=30)
+            util_hist_df = pd.DataFrame({"bin": util_bins[:-1], "count": util_hist}).set_index("bin")
+            st.bar_chart(util_hist_df)
+
+            st.markdown("### Basic Stats")
+            st.write(mc_results.describe())
 
 
 if __name__ == "__main__":
