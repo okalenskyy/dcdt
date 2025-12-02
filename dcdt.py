@@ -849,39 +849,39 @@ def main():
     st.subheader("Key Financial KPIs (per scenario)")
     st.dataframe(summary_df, use_container_width=True)
 
-    # Export button
-    global_config = dict(
-        start_year=start_year,
-        model_years=model_years,
-        base_TAM_gpus=base_TAM_gpus,
-        base_SAM_share=base_SAM_share,
-        base_gpu_utilization=base_gpu_utilization,
-        base_power_price=base_power_price,
-        global_gpu_power_kw=global_gpu_power_kw,
-        fixed_opex_per_year=fixed_opex_per_year,
-        other_var_cost=other_variable_cost_per_gpu_h,
-        discount_rate=discount_rate,
-        tax_rate=tax_rate,
-        capex_lifetime_years=capex_lifetime_years,
-    )
+    # # Export button
+    # global_config = dict(
+    #     start_year=start_year,
+    #     model_years=model_years,
+    #     base_TAM_gpus=base_TAM_gpus,
+    #     base_SAM_share=base_SAM_share,
+    #     base_gpu_utilization=base_gpu_utilization,
+    #     base_power_price=base_power_price,
+    #     global_gpu_power_kw=global_gpu_power_kw,
+    #     fixed_opex_per_year=fixed_opex_per_year,
+    #     other_var_cost=other_variable_cost_per_gpu_h,
+    #     discount_rate=discount_rate,
+    #     tax_rate=tax_rate,
+    #     capex_lifetime_years=capex_lifetime_years,
+    # )
 
-    export_bytes = export_to_excel(
-        global_config=global_config,
-        products=st.session_state["products_df"],
-        capacity=st.session_state["capacity_df"],
-        investments=invest_df,
-        demand=demand_all,
-        capacity_summary=capacity_all,
-        financials=fin_all,
-        forecast=forecast_all,
-    )
+    # export_bytes = export_to_excel(
+    #     global_config=global_config,
+    #     products=st.session_state["products_df"],
+    #     capacity=st.session_state["capacity_df"],
+    #     investments=invest_df,
+    #     demand=demand_all,
+    #     capacity_summary=capacity_all,
+    #     financials=fin_all,
+    #     forecast=forecast_all,
+    # )
 
-    st.download_button(
-        "📥 Download current model as Excel",
-        data=export_bytes,
-        file_name="AI_Factory_Digital_Twin.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+    # st.download_button(
+    #     "📥 Download current model as Excel",
+    #     data=export_bytes,
+    #     file_name="AI_Factory_Digital_Twin.xlsx",
+    #     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    # )
 
     # Tabs
     tab_overview, tab_demand, tab_capacity, tab_financials, tab_risk = st.tabs(
