@@ -749,10 +749,10 @@ def main():
     #     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     # )
 
-    # # Tabs for detailed views
-    # tab_overview, tab_demand, tab_capacity, tab_financials = st.tabs(
-    #     ["Overview (Multi-Scenario)", "Market & Demand", "Capacity", "Financials"]
-    # )
+    # Tabs for detailed views
+    tab_overview, tab_demand, tab_capacity, tab_financials = st.tabs(
+        ["Overview (Multi-Scenario)", "Market & Demand", "Capacity", "Financials"]
+    )
 
     with tab_overview:
         st.markdown("### Revenue & EBITDA over Time – Scenario Comparison")
